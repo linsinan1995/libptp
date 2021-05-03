@@ -1523,28 +1523,72 @@ set_property (PTPParams* params,
 	return 0;
 }
 
-int 
-theta_set_property_if(PTPParams* params, uint16_t property,const char* value, short force)
-{
-	PTPDevicePropDesc dpd;
-	const char* propname;
-	const char *propdesc;
-	uint16_t result;
+// int 
+// theta_set_property_if(PTPParams* params, uint16_t property,const char* value, short force)
+// {
+// 	PTPDevicePropDesc dpd;
+// 	const char* propname;
+// 	const char *propdesc;
+// 	uint16_t result;
 
-	memset(&dpd,0,sizeof(dpd));
-	result=ptp_getdevicepropdesc(params,property,&dpd);
-	if (result!=PTP_RC_OK&&!force) {
-		ptp_perror(params,result); 
-		fprintf(stderr,"ERROR: "
-		"Could not get device property description!\n"
-		"Try to reset the camera.\n");
-		return 1;
-	}
-}
+// 	memset(&dpd,0,sizeof(dpd));
+// 	result=ptp_getdevicepropdesc(params,property,&dpd);
+// 	if (result!=PTP_RC_OK&&!force) {
+// 		ptp_perror(params,result); 
+// 		fprintf(stderr,"ERROR: "
+// 		"Could not get device property description!\n"
+// 		"Try to reset the camera.\n");
+// 		return 1;
+// 	}
+// }
 
 #define SleepMode 0xD80E
 #define StillCaptureMode 0x5013
 #define TIMEOUT 5
+
+void
+theta_sleep (int busn,int devn,uint16_t property,char* value, short force)
+{
+	PTPParams params;
+	PTP_USB ptp_usb;
+	struct usb_device *dev;
+	int timeout = TIMEOUT;
+	PTPDevicePropDesc dpd;
+	uint16_t result;
+	uint8_t ret;
+
+	// 1. open camera
+	while (timeout-- > 0 && open_camera(busn, devn, force, &ptp_usb, &params, &dev) < 0)
+		fprintf(stderr, "fail to open camera, %d time\n", TIMEOUT - timeout);
+
+	// get property "sleep mode"
+	memset(&dpd,0,sizeof(dpd));
+	result = ptp_getdevicepropdesc(&params, SleepMode, &dpd);
+	uint8_t is_sleep;
+	
+	while (result!=PTP_RC_OK) 
+	{
+		// fprintf(stderr,"ERROR: can not got SleepMode status, retry\n");
+		result = ptp_getdevicepropdesc(&params, SleepMode, &dpd);
+		if (result==PTP_RC_OK || dpd.DataType != 0) break;
+	}
+
+	if (dpd.DataType != PTP_DTC_UNDEF)
+		is_sleep = *(uint8_t*)dpd.CurrentValue;
+	
+	if (is_sleep != 1)
+	{
+		result = set_property(&params, SleepMode, "0x1", dpd.DataType);
+		if (result != PTP_RC_OK)
+		{
+			printf ("FAILED!!!\n");
+			ptp_perror(&params, result);
+		} 
+	}
+	
+	printf("succeeded.\n");
+	close_camera(&ptp_usb, &params, dev);
+}
 
 void
 theta_shut_up_test (int busn,int devn,uint16_t property,char* value, short force)
@@ -2228,6 +2272,7 @@ main(int argc, char ** argv)
 	int option_index = 0,opt;
 	static struct option loptions[] = {
 		{"theta-init",0,0,'t'},
+		{"theta-sleep",0,0,'S'},
 		{"theta-shut",0,0,'T'},
 		{"help",0,0,'h'},
 		{"bus",1,0,0},
@@ -2273,6 +2318,9 @@ main(int argc, char ** argv)
 	
 		switch (opt) {
 		/* set parameters */
+		case 'S':
+			theta_sleep(busn,devn,property,value,force);
+			return 0;
 		case 'T':
 			theta_shut_up_test(busn,devn,property,value,force);
 			return 0;
