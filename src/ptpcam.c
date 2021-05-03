@@ -1564,7 +1564,7 @@ theta_sleep (int busn,int devn,uint16_t property,char* value, short force)
 	// get property "sleep mode"
 	memset(&dpd,0,sizeof(dpd));
 	result = ptp_getdevicepropdesc(&params, SleepMode, &dpd);
-	uint8_t is_sleep;
+	uint8_t is_sleep = 0;
 	
 	while (result!=PTP_RC_OK) 
 	{
@@ -1608,7 +1608,7 @@ theta_shut_up_test (int busn,int devn,uint16_t property,char* value, short force
 	// get property "StillCaptureMode"
 	memset(&dpd,0,sizeof(dpd));
 	result = ptp_getdevicepropdesc(&params, StillCaptureMode, &dpd);
-	uint16_t is_live_mode;
+	uint16_t is_live_mode = 0;
 
 	if (result!=PTP_RC_OK) 
 	{
@@ -1634,7 +1634,7 @@ theta_shut_up_test (int busn,int devn,uint16_t property,char* value, short force
 	// get property "sleep mode"
 	memset(&dpd,0,sizeof(dpd));
 	result = ptp_getdevicepropdesc(&params, SleepMode, &dpd);
-	uint8_t is_sleep;
+	uint8_t is_sleep = 0;
 	
 	while (result!=PTP_RC_OK) 
 	{
