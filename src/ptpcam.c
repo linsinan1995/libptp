@@ -489,6 +489,39 @@ open_camera (int busn, int devn, short force, PTP_USB *ptp_usb, PTPParams *param
 	return 0;
 }
 
+int
+theta_open_camera (int busn, int devn, short force, PTP_USB *ptp_usb, PTPParams *params, struct usb_device **dev)
+{
+	*dev=find_device(busn,devn,force);
+	if (*dev==NULL) {
+		fprintf(stderr,"could not find any device matching given "
+		"bus/dev numbers\n");
+		exit(-1);
+	}
+	find_endpoints(*dev,&ptp_usb->inep,&ptp_usb->outep,&ptp_usb->intep);
+
+	init_ptp_usb(params, ptp_usb, *dev);
+	if (ptp_opensession(params, 1)!=PTP_RC_OK) {
+		fprintf(stderr,"ERROR: Could not open session!\n");
+		close_usb(ptp_usb, *dev);
+		return -1;
+	}
+
+	if (ptp_getdeviceinfo(params,&params->deviceinfo)!=PTP_RC_OK) {
+		fprintf(stderr,"ERROR: Could not get device info!\n");
+		close_usb(ptp_usb, *dev);
+		return -1;
+	}
+
+	if (ptp_closesession(params) != PTP_RC_OK)
+	{
+		fprintf(stderr,"ERROR: Could not close session!\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 void
 close_camera (PTP_USB *ptp_usb, PTPParams *params, struct usb_device *dev)
 {
@@ -1523,28 +1556,13 @@ set_property (PTPParams* params,
 	return 0;
 }
 
-// int 
-// theta_set_property_if(PTPParams* params, uint16_t property,const char* value, short force)
-// {
-// 	PTPDevicePropDesc dpd;
-// 	const char* propname;
-// 	const char *propdesc;
-// 	uint16_t result;
+#define TIMEOUT 10
 
-// 	memset(&dpd,0,sizeof(dpd));
-// 	result=ptp_getdevicepropdesc(params,property,&dpd);
-// 	if (result!=PTP_RC_OK&&!force) {
-// 		ptp_perror(params,result); 
-// 		fprintf(stderr,"ERROR: "
-// 		"Could not get device property description!\n"
-// 		"Try to reset the camera.\n");
-// 		return 1;
-// 	}
-// }
-
-#define SleepMode 0xD80E
-#define StillCaptureMode 0x5013
-#define TIMEOUT 5
+enum ThetaMode
+{
+	SleepMode = 0xD80E,
+	StillCaptureMode = 0x5013
+};
 
 void
 theta_sleep (int busn,int devn,uint16_t property,char* value, short force)
@@ -1660,70 +1678,138 @@ theta_shut_up_test (int busn,int devn,uint16_t property,char* value, short force
 	close_camera(&ptp_usb, &params, dev);
 }
 
+int theta_get_and_change(PTPParams *params, enum ThetaMode mode,  char *value)
+{
+	uint16_t exec_result;
+	uint16_t query_result;
+	int timeout = TIMEOUT*10;
+	PTPDevicePropDesc dpd;
+
+	// uint32_t check_value = (uint32_t)strtol(value,NULL,0);
+
+	memset(&dpd,0,sizeof(dpd));
+
+	if (ptp_opensession(params, 1) != PTP_RC_OK)
+	{
+		fprintf(stderr,"ERROR: Could not open session!\n");
+		return !PTP_RC_OK;
+	}
+
+	// while (timeout-- >= 0)
+	// if (ptp_getdevicepropdesc(params, mode, &dpd) != PTP_RC_OK) 
+	// {
+	// 	ptp_perror(params, exec_result); 
+	// 	fprintf(stderr,"ERROR: "
+	// 	"Could not get device property description! Retry %d times!\n", timeout);
+	// 	usleep(300*1000);
+	// 	if (timeout < 0)
+	// 		return !PTP_RC_OK;
+	// } else 
+	// 	break;
+
+	// if (ptp_closesession(params) != PTP_RC_OK) 
+	// {
+	// 	fprintf(stderr,"ERROR: Could not close session!\n");
+	// 	return !PTP_RC_OK;
+	// }
+
+	// if (ptp_opensession(params, 1) != PTP_RC_OK) 
+	// {
+	// 	fprintf(stderr,"ERROR: Could not open session!\n");
+	// 	return !PTP_RC_OK;
+	// }
+
+	// if (dpd.DataType == 0) 
+	// {
+	// 	fprintf(stderr,"ERROR: Wrong data format!\n");
+	// 	return !PTP_RC_OK;
+	// }
+
+	// switch (mode)
+	// {
+	// 	case SleepMode: query_result = *(unsigned char*)(dpd.CurrentValue); break;
+	// 	case StillCaptureMode: query_result = *(uint16_t*)(dpd.CurrentValue); break;
+	// 	default: fprintf(stderr, "ERROR: unexpected mode!\n"); return !PTP_RC_OK;
+	// }
+	switch (mode)
+	{
+		case SleepMode: exec_result = set_property(params, mode, value, PTP_DTC_UINT8); break;
+		case StillCaptureMode: exec_result = set_property(params, mode, value, PTP_DTC_UINT16); break;
+		default: fprintf(stderr, "ERROR: unexpected mode!\n"); return !PTP_RC_OK;
+	}
+	
+
+	// if (query_result != check_value)
+	// 	exec_result = set_property(params, mode, value, dpd.DataType);
+
+	if (ptp_closesession(params) != PTP_RC_OK)
+	{
+		fprintf(stderr,"ERROR: Could not close session!\n");
+		return !PTP_RC_OK;
+	}
+
+	if (exec_result != PTP_RC_OK) 
+	{
+		fprintf(stderr,"ERROR: fail to change mode!\n");
+		return !PTP_RC_OK;
+	}
+	
+
+	return PTP_RC_OK;
+}
+
 void
-theta_init (int busn,int devn,uint16_t property,char* value, short force)
+theta_init (int busn,int devn, uint16_t property, char* value, short force)
 {
 	PTPParams params;
 	PTP_USB ptp_usb;
 	struct usb_device *dev;
 	int timeout = TIMEOUT;
-	PTPDevicePropDesc dpd;
 	uint16_t result;
-	uint8_t ret;
-	// 1. open camera
-	while (timeout-- > 0 && open_camera(busn, devn, force, &ptp_usb, &params, &dev) < 0)
-		fprintf(stderr, "fail to open camera, %d time\n", TIMEOUT - timeout);
-	
-	// get property "SleepMode"
-	memset(&dpd,0,sizeof(dpd));
-	result = ptp_getdevicepropdesc(&params, SleepMode, &dpd);
-	uint8_t is_sleep;
 
-	if (result!=PTP_RC_OK) 
+	// 1. open camera
+	while (timeout-- > 0 && theta_open_camera(busn, devn, force, &ptp_usb, &params, &dev) < 0)
 	{
-		ptp_perror(&params,result); 
-		fprintf(stderr,"ERROR: "
-		"Could not get device property description!\n"
-		"Try to reset the camera.\n");
+		fprintf(stderr, "fail to open camera, %d time\n", TIMEOUT - timeout);
+		usleep(5000*100);
+	}
+		
+	if (timeout < 0) 
+	{
+		fprintf (stderr, "Error: cannot open camera!");
+		return;
+	}
+
+	timeout = TIMEOUT;
+	// get property "SleepMode" if it does not equals 0, set to 0
+	while (timeout-- > 0 && theta_get_and_change(&params, SleepMode, "0x00") != PTP_RC_OK)
+	{
+		fprintf(stderr, "fail to change sleepmode, %d time\n", TIMEOUT - timeout);
+		usleep(5000*100);
+	}
+
+	if (timeout < 0) 
+	{
+		fprintf (stderr, "Error: cannot change sleepmode!");
+		return;
+	}
+
+	// get property "StillCaptureMode" if it equals 0x8005, set to 0x8005
+	timeout = TIMEOUT;
+	while (timeout-- > 0 && theta_get_and_change(&params, StillCaptureMode, "0x8005") != PTP_RC_OK)
+	{
+		fprintf(stderr, "fail to change capture mode, %d time\n", TIMEOUT - timeout);
+		usleep(5000*100);
+	}
+
+	if (timeout < 0) 
+	{
+		fprintf(stderr,"ERROR: fail on querying StillCaptureMode!\n");
 		return ;
 	}
 	
-	is_sleep = *(unsigned char*)dpd.CurrentValue;
-
-	if (is_sleep == 1)
-	{
-		do
-		{
-			result = set_property(&params, SleepMode, "0x00", dpd.DataType);
-		} while (result != PTP_RC_OK && dpd.DataType == 0);
-	}
-	// ptp_closesession(&params);
-	// ptp_opensession(&params,1);
-	// get property "StillCaptureMode"
-	memset(&dpd,0,sizeof(dpd));
-	result = ptp_getdevicepropdesc(&params, StillCaptureMode, &dpd);
-	uint32_t is_live_mode;
-	
-	while (result != PTP_RC_OK) 
-	{
-		// fprintf(stderr,"ERROR: can not got StillCaptureMode status, retry\n");
-		result = ptp_getdevicepropdesc(&params, StillCaptureMode, &dpd);
-		if (result == PTP_RC_OK || dpd.DataType != 0) break;
-	}
-
-	if (dpd.DataType != PTP_DTC_UNDEF)
-		is_live_mode = *(uint16_t*)dpd.CurrentValue;
-	
-	if (is_live_mode != 0x8005)
-	{
-		do
-		{
-			result = set_property(&params, StillCaptureMode, "0x8005", dpd.DataType);
-		} while (result != PTP_RC_OK && dpd.DataType == 0);
-	}
-	
 	printf("succeeded.\n");
-	close_camera(&ptp_usb, &params, dev);
+	close_usb(&ptp_usb, dev);
 }
 
 void
