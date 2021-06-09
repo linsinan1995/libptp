@@ -1758,7 +1758,7 @@ int theta_get_and_change(PTPParams *params, enum ThetaMode mode,  char *value)
 	return PTP_RC_OK;
 }
 
-void
+int
 theta_init (int busn,int devn, uint16_t property, char* value, short force)
 {
 	PTPParams params;
@@ -1777,7 +1777,7 @@ theta_init (int busn,int devn, uint16_t property, char* value, short force)
 	if (timeout < 0) 
 	{
 		fprintf (stderr, "Error: cannot open camera!");
-		return;
+		return 1;
 	}
 
 	timeout = TIMEOUT;
@@ -1791,7 +1791,7 @@ theta_init (int busn,int devn, uint16_t property, char* value, short force)
 	if (timeout < 0) 
 	{
 		fprintf (stderr, "Error: cannot change sleepmode!");
-		return;
+		return 1;
 	}
 
 	// get property "StillCaptureMode" if it equals 0x8005, set to 0x8005
@@ -1805,11 +1805,12 @@ theta_init (int busn,int devn, uint16_t property, char* value, short force)
 	if (timeout < 0) 
 	{
 		fprintf(stderr,"ERROR: fail on querying StillCaptureMode!\n");
-		return ;
+		return 1;
 	}
 	
 	printf("succeeded.\n");
 	close_usb(&ptp_usb, dev);
+	return 0;
 }
 
 void
@@ -2411,8 +2412,7 @@ main(int argc, char ** argv)
 			theta_shut_up_test(busn,devn,property,value,force);
 			return 0;
 		case 't':
-			theta_init(busn,devn,property,value,force);
-			return 0;
+			return theta_init(busn,devn,property,value,force);
 		case 0:
 			if (!(strcmp("val",loptions[option_index].name)))
 				value=strdup(optarg);
