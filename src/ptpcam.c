@@ -1556,7 +1556,7 @@ set_property (PTPParams* params,
 	return 0;
 }
 
-#define TIMEOUT 10
+#define TIMEOUT 1
 
 enum ThetaMode
 {
